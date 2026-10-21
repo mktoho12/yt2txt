@@ -1,0 +1,38 @@
+# WORKLOG
+
+## 2026-10-21 初版
+
+### 依頼
+YouTube の URL を受け取り、字幕（なければ文字起こし）をテキストファイルに出力する CLI `yt2txt`。要約は別の AI に任せるので作らない。
+
+### 環境（確認した結果）
+- Python 3.14、uv、node あり。yt-dlp・ffmpeg・Whisper 系はなかった
+- GPU: RTX 3080 Ti（12GB）、ドライバは CUDA 13.0
+- sudo にはパスワードが要るため、ffmpeg と deno は mise でユーザー領域に入れた（`~/.config/mise/config.toml` に `ffmpeg`、`deno` を追加）
+
+### 決めたこと
+- **言語**: Python。uv でパッケージにして、`yt2txt` コマンドとして入れる。yt-dlp は Python ライブラリとして使う
+- **文字起こし**: 最初は faster-whisper（GPU があり、pip だけで入るため）で書いたが、途中でユーザーから「文字起こしは SaaS を使っている。videos が知っている」と聞いた。videos のセッション（ずんだもん動画）に問い合わせ、**ElevenLabs Scribe v2** に切り替えた
+  - videos のやり方: `POST https://api.elevenlabs.io/v1/speech-to-text`、`xi-api-key` ヘッダ、キーは `~/.config/elevenlabs/api_key`。約 67 分の音声も分割せずに 1 回で通った
+  - yt2txt では、字幕の代わりなので話者の分離（diarize）はしない。言語は指定せず自動判定にする。`tag_audio_events=false`
+  - キーは環境変数 `ELEVENLABS_API_KEY` を優先し、なければ videos と同じファイルから読む
+  - faster-whisper のコード（GPU の CUDA ライブラリ読み込みなど）は消した
+- **字幕の選び方**: `info["subtitles"]` と `info["automatic_captions"]` から優先順で選ぶ。`ja-JP` や `ja-orig` も ja として扱い、完全一致の `ja` を先にする。自動字幕のうち `tlang=` 付き（YouTube が別言語から機械翻訳したもの）は使わない。ja/en の元字幕がなければ文字起こしに回す
+- **VTT の整形**: タイミング行を含むブロックの本文だけを取り出し、タグを除いて HTML エンティティを戻し、直前と同じ行を捨てる（自動字幕のロールアップ表示の重複対策）
+- **JS ランタイム**: 最近の yt-dlp は YouTube 用に JS ランタイムが要り、既定では deno しか使わない。deno がなくても node・bun があれば有効にするようにした
+- **Scribe の結果の整形**: 日本語はほぼ 1 文字ずつ返るので、つないでから文末記号の後で改行する。1.5 秒以上の無音でも改行する
+  - 句点が「？Hey,」のように語の先頭に付いて返ることがあるため、語単位ではなく、つないだ後の文字列で区切る
+  - 弾き語りの動画で、1 回目は末尾に「Oh。」が数百回続いた（2 回目は出なかったので、API 側の不安定な幻覚）。同じ短い句が 5 回以上続いたら 3 回に縮める
+- **エラー**: yt-dlp のエラーが「Sign in to confirm」「not a bot」「429」「cookies」を含むときは、`--cookies-from-browser` を使うよう案内する（年齢制限の場合も同じ文言で弾かれるので、案内はどちらにも当てはまる書き方にした）。yt-dlp 自身のエラー出力は二重になるので抑えた
+
+### 動作確認
+- 単体テスト: `uv run pytest`（10 件、すべて通過）
+- 字幕あり（自動生成字幕 ja）: `bcGTk3k2PyE`「【ゆっくり解説】睡眠に関する衝撃の雑学2選」→ 自動生成字幕（ja）で出力。重複行が消えていることを確認
+- 字幕あり（手動字幕 en）: `jNQXAC9IVRw`「Me at the zoo」→ 手動字幕（en）で出力
+- 字幕なし: `-cM5MgrZ3tg`「「Shall we dance？」nenne 弾き語りオリジナル」（字幕も自動字幕もない）→ 音声を取得し ElevenLabs で文字起こし（言語 jpn）。実行後に一時ディレクトリが残っていないことを確認
+- エラー表示: ffmpeg がない場合、API キーがない場合、存在しない動画の場合に、それぞれ分かりやすい表示と終了コード 1 になることを確認
+- `--cookies-from-browser "chrome:Profile 1"` が yt-dlp の形式 `('chrome', 'Profile 1', None, None)` に変換されることを確認（実際にブラウザの Cookie を使った取得は試していない）
+
+### 字幕のない動画を探したときのメモ
+- 話し声のある動画には、Shorts も含めてほぼ自動字幕が付いていた。字幕がなかったのは、環境音の Shorts と一部の弾き語り動画だけだった
+- `KoCWNXim-4A` は日本語の歌なのに自動字幕が `ro`（ルーマニア語）と判定されていた。こういう動画も ja/en がないので文字起こしに回る

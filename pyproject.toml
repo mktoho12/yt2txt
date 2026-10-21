@@ -1,0 +1,20 @@
+[project]
+name = "yt2txt"
+version = "0.1.0"
+description = "YouTube動画を字幕または文字起こしでテキスト化する（要約用の前処理）"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "yt-dlp[default]>=2025.10.22",
+    "requests>=2.31",
+]
+
+[project.scripts]
+yt2txt = "yt2txt.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
