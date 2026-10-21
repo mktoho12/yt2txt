@@ -22,7 +22,7 @@ YouTube 動画の内容をテキストファイルにする、要約前の下準
 ## インストール
 
 ```sh
-uv tool install "git+ssh://git@github.com/mktoho12/yt2txt.git"
+uv tool install "git+https://github.com/mktoho12/yt2txt.git"
 # 作業コピーから入れる場合
 uv tool install -e .
 ```
